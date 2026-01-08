@@ -28,11 +28,8 @@ The cluster is composed of three primary layers to ensure a modular and scalable
 
 **Use Case:** Development and testing of models or protocol extensions.
 
-* 
 **Command**: `nix develop` for NVIDIA/General or `nix develop .#rocm` for AMD.
 
-
-* 
 **Features**: Provides a full toolchain including Python 3.11 with ML stack, Rust stable, and hardware-specific SDKs.
 
 
@@ -48,12 +45,9 @@ The cluster is composed of three primary layers to ensure a modular and scalable
 ### 3. Bare-Metal All-in-One (ISO)
 
 **Use Case:** Deploying a "headless" GPU server or a portable development station without installing a persistent OS.
-
-* 
+ 
 **Command**: `nix build .#iso`.
-
-
-* 
+ 
 **Function**: Creates a bootable NixOS ISO pre-loaded with NVIDIA and ROCm drivers, the full DCF SDK, and automated worker logic.
 
 
