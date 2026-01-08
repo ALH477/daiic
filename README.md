@@ -2,102 +2,161 @@
 
 ## Overview
 
-The HydraMesh Distributed AI Inference Cluster is a high-performance, low-latency framework designed for distributed data exchange and real-time AI synchronization. This project implements a **Distributed Actor System** utilizing the 17-byte binary UDP transport protocol defined by the **DeMoD Communications Framework (DCF) v5.0.0**.
-
-The system is optimized for hardware-agnostic deployments, supporting everything from resource-constrained edge devices to high-performance GPU clusters on NixOS.
+HydraMesh is a high-performance, low-latency distributed inference framework built on the **DeMoD Communications Framework (DCF) v5.0.0**. It leverages a handshakeless, 17-byte binary UDP protocol to facilitate real-time data exchange between nodes. The system is built using NixOS flakes to provide bit-for-bit reproducible environments for development, containerized deployment, and bare-metal ISO execution.
 
 ---
 
-## Copyright and License
+## System Architecture
 
-**Copyright (c) 2026 DeMoD LLC. All rights reserved.** This software is licensed under the **BSD-3-Clause License**. The underlying DCF design specifications are provided under the **GPL-3.0 License**.
+The cluster is composed of three primary layers to ensure a modular and scalable design:
 
----
+1. 
+**Ingress Layer (DCF Shim)**: A high-speed Rust bridge that receives external UDP traffic and encapsulates it into the 17-byte DCF header.
 
-## Use Cases and Instructions
 
-### 1. External Ingress (The Shim)
+2. 
+**Routing Layer (Head Node)**: A central controller that manages worker health via heartbeats and distributes tasks using round-robin logic.
 
-**Use Case:** Bridging external game clients or IoT devices to the internal HydraMesh cluster. The Shim acts as the secure, high-speed entry point that handles binary serialization.
 
-**How to Use:**
-
-* The Shim is provided as a containerized Rust application.
-* **Ingress Port:** 9999 (UDP).
-* **Target:** Should point to the Head Node's Ingress Port (7777).
-* **Command:** `docker run -e SHIM_NODE_TARGET=192.168.1.50:7777 -p 9999:9999/udp demod/dcf-shim`.
-
-### 2. Cluster Routing (Head Node)
-
-**Use Case:** Managing the `WorkerRegistry` and load-balancing inference tasks across all active GPU workers using a round-robin strategy.
-
-**How to Use:**
-
-* **Container:** `nix build .#container-head` and load into Docker.
-* **Role:** Set the role to `head`. It will listen for internal worker heartbeats on port 7778 and client traffic on 7777.
-* **Status:** Monitor the Ray Dashboard (if enabled) or the Head logs to see worker registration.
-
-### 3. GPU Inference (Worker Node)
-
-**Use Case:** Performing heavy Large Language Model (LLM) or Stable Diffusion generation. Workers utilize **4-bit quantization** and **System RAM Offloading** to prevent crashes on limited hardware.
-
-**How to Use:**
-
-* **Container:** `nix build .#container-worker` and load into Docker.
-* **Role:** Set to `worker` and provide the `headIp`.
-* **Hardware:** Requires NVIDIA Container Toolkit. Ensure the worker has access to `/run/opengl-driver/lib` for CUDA linking.
-
-### 4. Portable All-in-One (The ISO)
-
-**Use Case:** A "Swiss Army Knife" for field deployment or rapid development. Boot any GPU-capable machine into a full NixOS environment pre-configured with the entire toolchain (Rust, Python, CUDA) and the local source code.
-
-**How to Use:**
-
-* **Build:** `nix build .#iso`.
-* **Flash:** Use `dd` or BalenaEtcher to flash the resulting `.iso` to a USB drive.
-* **Boot:** Boot from USB. Log in with user `nixos` and password `hydra`.
-* **Dev:** The ISO includes `rust-analyzer`, `python-lsp`, and `nvtop` for immediate performance profiling and coding.
+3. **Inference Layer (Worker Nodes)**: GPU-accelerated endpoints supporting both NVIDIA (CUDA) and AMD (ROCm) backends.
 
 ---
 
-## Protocol Specification
+## Use Cases and Deployment Modes
 
-The system utilizes the DCF 17-byte handshakeless binary header for all internal cluster communication:
+### 1. Local Development
 
-| Offset | Field | Type | Description |
-| --- | --- | --- | --- |
-| 0 | `msg_type` | u8 | 0x01: Heartbeat, 0x02: Task, 0x03: Result 
-
- |
-| 1 | `sequence` | u32 | Big-Endian packet identifier |
-| 5 | `timestamp` | u64 | Microseconds since Epoch 
-
- |
-| 13 | `payload_len` | u32 | Length of subsequent data |
-
----
-
-## Resource Management
+**Use Case:** Development and testing of models or protocol extensions.
 
 * 
-**System RAM Offloading**: If VRAM is exhausted, the system spills model weights to DRAM via the `offload_folder` configuration.
+**Command**: `nix develop` for NVIDIA/General or `nix develop .#rocm` for AMD.
 
 
-* **OOM Prioritization**: The NixOS module sets `OOMScoreAdjust = -500`, ensuring the Linux kernel preserves the inference process during memory spikes.
 * 
-**Self-Healing**: The Head Node prunes silent workers within 10 seconds based on RTT and heartbeat metrics.
+**Features**: Provides a full toolchain including Python 3.11 with ML stack, Rust stable, and hardware-specific SDKs.
+
+
+
+### 2. Containerized Deployment
+
+**Use Case:** Scaling across modern cloud or local Docker infrastructure.
+
+* **Build Head**: `nix build .#container-head`
+* **Build Worker (NVIDIA)**: `nix build .#container-worker-nvidia`
+* **Build Worker (AMD)**: `nix build .#container-worker-rocm`
+
+### 3. Bare-Metal All-in-One (ISO)
+
+**Use Case:** Deploying a "headless" GPU server or a portable development station without installing a persistent OS.
+
+* 
+**Command**: `nix build .#iso`.
+
+
+* 
+**Function**: Creates a bootable NixOS ISO pre-loaded with NVIDIA and ROCm drivers, the full DCF SDK, and automated worker logic.
 
 
 
 ---
 
-## Developer Experience (DevX)
+## Sourcing Models
 
-To start a local development environment with all compilers and ML libraries:
+The system supports both remote sourcing from the Hugging Face Hub and local hosting of Safe Tensor files.
 
-```bash
-nix develop
+### Remote Models (Hugging Face)
+
+The cluster requires a Hugging Face Access Token to download and cache models.
+
+* **Environment Variable**: Set `HF_TOKEN` in your shell or `.env` file.
+* 
+**NixOS Option**: Set `services.hydramesh.hfToken` in your configuration.
+
+
+
+### Local Models (Safe Tensor)
+
+**Use Case:** Loading custom .safetensors files (e.g., from CivitAI) directly from disk.
+
+* **Setup**: Place `.safetensors` files in the `./local-models` directory.
+* 
+**Loading**: The worker uses the `from_single_file` loader to map weights directly into memory with maximum security and efficiency.
+
+
+
+---
+
+## Docker Compose Configuration
+
+This setup utilizes the official DCF Shim and your locally built images.
+
+```yaml
+version: '3.8'
+
+services:
+  # Official DCF Bridge from alh477
+  shim:
+    image: alh477/dcf-shim:latest
+    network_mode: host
+    environment:
+      - SHIM_INGRESS_PORT=9999
+      - SHIM_NODE_TARGET=127.0.0.1:7777
+    restart: always
+
+  # Local Mesh Router
+  head:
+    image: demod/mesh-head:latest
+    network_mode: host
+    restart: always
+
+  # Local GPU Worker (NVIDIA Example)
+  worker:
+    image: demod/mesh-worker-nvidia:latest
+    network_mode: host
+    command: [
+      "python3", "/bin/worker_node.py", 
+      "--head-ip", "127.0.0.1",
+      "--model-path", "/models/my_custom_model.safetensors"
+    ]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    volumes:
+      - ./local-models:/models
+      - ./model-cache:/data/huggingface
+    restart: always
 
 ```
 
-This shell provides the **HydraMesh SDK** components, including the `dcf-plugin-manager` logic for dynamic transport loading
+---
+
+## Protocol Definition (17-Byte Header)
+
+All cluster traffic adheres to the following binary structure:
+
+| Size | Type | Field | Description |
+| --- | --- | --- | --- |
+| 1B | u8 | `msg_type` | 0x01: Heartbeat, 0x02: Task, 0x03: Result 
+
+ |
+| 4B | u32 | `sequence` | Big-Endian packet identifier |
+| 8B | u64 | `timestamp` | Microseconds since Epoch 
+
+ |
+| 4B | u32 | `payload_len` | Length of the subsequent data payload |
+
+---
+
+## Resource Management and Stability
+
+**RAM Offloading**: Prevents Out-Of-Memory (OOM) crashes by spilling model weights from VRAM to System RAM using Accelerate.
+
+**Precision**: Defaults to `torch.float16` for GPU backends to reduce memory footprint by 50%.
+
+**Hardened Isolation**: The NixOS module utilizes `ProtectSystem` and `PrivateTmp` to secure the inference environment.
+
+**Priority Handling**: Workers are assigned an `OOMScoreAdjust` of -500 to protect the inference process from kernel termination during heavy load.
