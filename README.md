@@ -99,13 +99,13 @@ services:
 
   # Local Mesh Router
   head:
-    image: demod/mesh-head:latest
+    image: alh477/mesh-head:latest
     network_mode: host
     restart: always
 
   # Local GPU Worker (NVIDIA Example)
   worker:
-    image: demod/mesh-worker-nvidia:latest
+    image: alh477/mesh-worker-nvidia:latest
     network_mode: host
     command: [
       "python3", "/bin/worker_node.py", 
