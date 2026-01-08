@@ -1,4 +1,4 @@
-# HydraMesh DCF: Distributed AI Inference Cluster
+# DAIIC: DCF AI Inference Cluster
 
 The HydraMesh Distributed AI Inference Cluster is a high-performance, low-latency framework designed for distributed data exchange and real-time AI synchronization. It implements a Distributed Actor System that utilizes the 17-byte binary UDP transport protocol defined by the DeMoD Communications Framework (DCF) v5.0.0. This version ensures hardware-agnostic deployments, supporting resources from edge devices to high-performance GPU clusters on NixOS.
 
