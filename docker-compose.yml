@@ -1,45 +1,207 @@
+# HydraMesh DCF Docker Compose Configuration
+# Copyright (c) 2026 DeMoD LLC. All rights reserved.
+# Licensed under BSD-3-Clause.
+
 version: '3.8'
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# Shared Configuration
+# ═══════════════════════════════════════════════════════════════════════════════
+
+x-worker-common: &worker-common
+  restart: unless-stopped
+  environment:
+    - HF_TOKEN=${HF_TOKEN:-}
+    - HF_HOME=/data/huggingface
+    - SD_MODEL_ID=${SD_MODEL_ID:-runwayml/stable-diffusion-v1-5}
+    - SD_INFERENCE_STEPS=${SD_INFERENCE_STEPS:-25}
+    - SD_GUIDANCE_SCALE=${SD_GUIDANCE_SCALE:-7.5}
+  volumes:
+    - model-cache:/data/huggingface
+    - ./local-models:/models:ro
+  healthcheck:
+    test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+    interval: 30s
+    timeout: 10s
+    retries: 3
+    start_period: 120s  # Models take time to load
+
+x-logging: &logging
+  logging:
+    driver: "json-file"
+    options:
+      max-size: "50m"
+      max-file: "3"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Services
+# ═══════════════════════════════════════════════════════════════════════════════
+
 services:
-  # Official Shim from Docker Hub
+  # ─────────────────────────────────────────────────────────────────────────────
+  # DCF Shim (Ingress Bridge)
+  # High-performance Rust UDP bridge for external clients
+  # ─────────────────────────────────────────────────────────────────────────────
   shim:
     image: alh477/dcf-shim:latest
+    container_name: dcf-shim
     network_mode: host
     environment:
-      - SHIM_INGRESS_PORT=9999
+      - SHIM_INGRESS_PORT=${SHIM_PORT:-9999}
       - SHIM_NODE_TARGET=127.0.0.1:7777
+      - RUST_LOG=${RUST_LOG:-info}
     restart: always
+    <<: *logging
 
-  # Local Router (Head)
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Head Controller (Router)
+  # Central routing and load balancing
+  # ─────────────────────────────────────────────────────────────────────────────
   head:
     image: alh477/mesh-head:latest
+    container_name: dcf-head
     network_mode: host
+    environment:
+      - DCF_CLIENT_PORT=7777
+      - DCF_WORKER_PORT=7778
+      - DCF_HEALTH_PORT=8080
+      - DCF_WORKER_TIMEOUT=${WORKER_TIMEOUT:-10}
+      - DCF_REQUEST_TIMEOUT=${REQUEST_TIMEOUT:-300}
+      - DCF_MAX_PENDING=${MAX_PENDING:-10000}
     restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    <<: *logging
 
-  # Worker A: NVIDIA GPU
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Worker: NVIDIA GPU
+  # CUDA-accelerated inference with 4-bit quantization
+  # ─────────────────────────────────────────────────────────────────────────────
   worker-nvidia:
     image: alh477/mesh-worker-nvidia:latest
+    container_name: dcf-worker-nvidia
     network_mode: host
-    command: ["python3", "/bin/worker_node.py", "--head-ip", "127.0.0.1"]
+    command: >
+      python3 /bin/worker_node.py
+        --head-ip 127.0.0.1
+        --head-port 7778
+        ${LOCAL_MODEL_PATH:+--model-path /models/${LOCAL_MODEL_PATH}}
     deploy:
       resources:
         reservations:
           devices:
             - driver: nvidia
-              count: 1
+              count: all
               capabilities: [gpu]
+        limits:
+          memory: ${WORKER_MEMORY_LIMIT:-32G}
     environment:
-      - HF_TOKEN=${HF_TOKEN}
-    volumes:
-      - ./model-cache:/data/huggingface
+      - TORCH_DEVICE=cuda
+      - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
+    profiles:
+      - nvidia
+      - gpu
+    <<: [*worker-common, *logging]
 
-  # Worker B: CPU / Hardware Agnostic
-  # Runs on standard RAM/CPU (Slower, but universal compatibility)
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Worker: AMD ROCm
+  # ROCm-accelerated inference for AMD GPUs
+  # ─────────────────────────────────────────────────────────────────────────────
+  worker-rocm:
+    image: alh477/mesh-worker-rocm:latest
+    container_name: dcf-worker-rocm
+    network_mode: host
+    command: >
+      python3 /bin/worker_node.py
+        --head-ip 127.0.0.1
+        --head-port 7778
+        ${LOCAL_MODEL_PATH:+--model-path /models/${LOCAL_MODEL_PATH}}
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    group_add:
+      - video
+      - render
+    environment:
+      - TORCH_DEVICE=cuda  # ROCm presents as CUDA
+      - HSA_OVERRIDE_GFX_VERSION=${HSA_OVERRIDE_GFX_VERSION:-10.3.0}
+      - ROCR_VISIBLE_DEVICES=${ROCR_VISIBLE_DEVICES:-0}
+    deploy:
+      resources:
+        limits:
+          memory: ${WORKER_MEMORY_LIMIT:-32G}
+    profiles:
+      - rocm
+      - amd
+      - gpu
+    <<: [*worker-common, *logging]
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Worker: CPU
+  # Universal fallback for systems without GPU
+  # ─────────────────────────────────────────────────────────────────────────────
   worker-cpu:
     image: alh477/mesh-worker-cpu:latest
+    container_name: dcf-worker-cpu
     network_mode: host
-    command: ["python3", "/bin/worker_node.py", "--head-ip", "127.0.0.1"]
+    command: >
+      python3 /bin/worker_node.py
+        --head-ip 127.0.0.1
+        --head-port 7778
+        ${LOCAL_MODEL_PATH:+--model-path /models/${LOCAL_MODEL_PATH}}
     environment:
-      - HF_TOKEN=${HF_TOKEN}
+      - TORCH_DEVICE=cpu
+      - OMP_NUM_THREADS=${CPU_THREADS:-4}
+      - MKL_NUM_THREADS=${CPU_THREADS:-4}
+    deploy:
+      resources:
+        limits:
+          cpus: '${CPU_LIMIT:-4}'
+          memory: ${WORKER_MEMORY_LIMIT:-16G}
+    profiles:
+      - cpu
+    <<: [*worker-common, *logging]
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # WebUI
+  # Gradio-based user interface
+  # ─────────────────────────────────────────────────────────────────────────────
+  webui:
+    image: alh477/mesh-webui:latest
+    container_name: dcf-webui
+    ports:
+      - "${WEBUI_PORT:-7860}:7860"
+    environment:
+      - WEBUI_HOST=0.0.0.0
+      - WEBUI_PORT=7860
+      - SD_MODEL_ID=${SD_MODEL_ID:-runwayml/stable-diffusion-v1-5}
+      - LLM_MODEL_ID=${LLM_MODEL_ID:-mistralai/Mistral-7B-v0.1}
     volumes:
-      - ./model-cache:/data/huggingface
+      - model-cache:/data/huggingface
+    profiles:
+      - webui
+    depends_on:
+      head:
+        condition: service_healthy
+    <<: *logging
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Volumes
+# ═══════════════════════════════════════════════════════════════════════════════
+
+volumes:
+  model-cache:
+    name: dcf-model-cache
+    driver: local
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Networks (for non-host mode deployments)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+networks:
+  default:
+    name: dcf-network
+    driver: bridge
