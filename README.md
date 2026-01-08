@@ -63,3 +63,48 @@ The NixOS module applies hardened isolation using `ProtectSystem` and `PrivateTm
 The project provides a dedicated development shell that can be accessed via `nix develop` or `nix-shell`. This environment is equipped with auto-detection logic that scans the host system for NVIDIA or AMD drivers before falling back to a CPU-only mode.
 
 The shell pre-loads all necessary compilers, ML libraries, and hardware-specific SDKs. It includes aliases and environment variables that point to the correct dynamic libraries, ensuring that tools like `bitsandbytes` function correctly across different hardware backends. This unified interface allows developers to switch between local testing and cluster deployment seamlessly.
+
+---
+
+## Recommended: Ultra Intelligent Head System (HydraMesh)
+
+The **Lisp HydraMesh** implementation is the recommended "Intelligent Head" for complex DCF clusters. It provides a feature-rich environment optimized for real-time decision-making, high-speed serialization, and hardware-level transport management.
+
+### Core Intelligence Features
+ 
+**High-Speed Serialization**: Replaces standard JSON with binary Protocol Buffers, achieving 10–100x faster serialization for real-time state synchronization.
+ 
+**Modular DSL Architecture**: Employs independent, composable Domain Specific Languages for game networking, audio streaming, and IoT sensor management.
+ 
+**Low-Latency Transport**: Optimized for <10ms latency in high-demand gaming and audio scenarios using native UDP transport.
+ 
+**Advanced Reliability**: Features a built-in redundancy module with RTT-based peer grouping and self-healing logic.
+ 
+**Local Persistence**: Integrates with StreamDB for high-performance, key-value storage of cluster states and metrics.
+
+### HydraMesh Container Variants
+
+The system is delivered via hardened OCI-compliant images designed for different operational environments:
+
+| Variant | Base Image | Security Level | Use Case |
+| --- | --- | --- | --- |
+| **`runtime`** | Debian Bookworm | High | Production deployments |
+| **`runtime-dev`** | fukamachi/sbcl | Medium | Development with interactive REPL |
+| **`runtime-usb4`** | runtime (ext) | High | High-speed hardware transport (Thunderbolt) 
+
+ |
+
+### Hardened Container Security
+
+* **Non-Root Execution**: Containers run under the unprivileged `hydramesh` user (UID 10001) to mitigate escape risks.
+* **Minimal Attack Surface**: Production variants use minimal base images with all Linux capabilities dropped except `NET_BIND_SERVICE`.
+* **Read-Only Integrity**: The root filesystem is set to read-only, preventing unauthorized modifications to the binary environment.
+* **Automated Health Monitoring**: Includes built-in health checks that verify node status every 30 seconds.
+
+### Hardware-Accelerated Transport (Thunderbolt/USB4)
+
+For ultra-low latency requirements, the HydraMesh head system includes a beta **Thunderbolt/USB4 transport plugin**. This allows for point-to-point PCIe-level communication between nodes, reaching throughputs of 20–40 Gbps and RTTs as low as 5μs.
+
+**Configuration**: Enable via the `HYDRAMESH_USB4_ENABLED=true` environment variable.
+
+**Requirements**: Requires the `runtime-usb4` image variant and `--privileged` or `--cap-add` flags for hardware access.
