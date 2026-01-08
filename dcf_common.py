@@ -9,10 +9,10 @@ HEADER_FORMAT = ">B I Q I"  # Big-Endian: Type(u8), Seq(u32), Ts(u64), Len(u32)
 HEADER_SIZE = 17
 
 # Message Types
-MSG_HEARTBEAT = 0x01  # Worker -> Head (I am alive)
-MSG_TASK      = 0x02  # Head -> Worker (Do this)
-MSG_RESULT    = 0x03  # Worker -> Head (Here is the answer)
-MSG_ERROR     = 0xFF  # Error report
+MSG_HEARTBEAT = 0x01
+MSG_TASK      = 0x02
+MSG_RESULT    = 0x03
+MSG_ERROR     = 0xFF
 
 @dataclass
 class DCFMessage:
